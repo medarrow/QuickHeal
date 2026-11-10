@@ -742,6 +742,7 @@ function QuickHeal_Command_Priest(msg)
     writeLine("/qh poh - Prayer of Healing on the raid group with highest total health deficit.")
     writeLine("/qh [mask] [type] [mod] - Heals the party/raid member that most needs it.")
     writeLine(" [mask]: player, target, targettarget, party, mt, nonmt, subgroup")
+    writeLine("/qh nearby [yards] - Heals the most hurt friendly unit within [yards] (default 40), in your group or not. Requires SuperWoW.")
     writeLine(" [type]: heal (channeled), hot (Renew)")
     writeLine(" [mod]: max (max rank), fh (firehose - max rank, no hp check)")
 end

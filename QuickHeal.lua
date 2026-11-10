@@ -1400,6 +1400,14 @@ local function Initialise()
         return;
     end
 
+    -- '/qh nearby [yards]' is the same for every class, so it is handled in front of the class command
+    local classCommand = SlashCmdList["QUICKHEAL"];
+    SlashCmdList["QUICKHEAL"] = function(msg)
+        if not QuickHeal_Command_Nearby(msg) then
+            classCommand(msg);
+        end
+    end
+
     --SlashCmdList["QUICKHEAL"] = QuickHeal_Command;
     --SLASH_QUICKHEAL1 = "/qh";
     --SLASH_QUICKHEAL2 = "/quickheal";
@@ -2888,6 +2896,137 @@ local function CollectScanUnits(RestrictParty, RestrictSubgroup, RestrictMT, Res
     return nPlayers, nPets
 end
 
+--[ Nearby units (SuperWoW) ]--
+-- The client has no "list units around me" call. SuperWoW gives every unit a GUID that works
+-- as a unit token and fires the unit events for units that have no token of their own, so the
+-- GUIDs of everything the client reports on are remembered here and filtered by distance when
+-- '/qh nearby' is used. GUIDs of units that are gone are dropped during the next scan.
+local nearbyGuids = {}
+local nearbyGroupToken = {} -- guid -> group unit token, rebuilt on every nearby scan
+
+local function NearbyAdd(unit)
+    if unit then
+        local _, guid = UnitExists(unit)
+        if guid then
+            nearbyGuids[guid] = true
+        end
+    end
+end
+
+if has_superwow then
+    local nearbyFrame = CreateFrame("Frame")
+    nearbyFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+    nearbyFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+    nearbyFrame:RegisterEvent("UNIT_COMBAT")
+    nearbyFrame:RegisterEvent("UNIT_MODEL_CHANGED")
+    nearbyFrame:RegisterEvent("UNIT_PORTRAIT_UPDATE")
+    nearbyFrame:RegisterEvent("UNIT_FACTION")
+    nearbyFrame:RegisterEvent("UNIT_FLAGS")
+    nearbyFrame:RegisterEvent("UNIT_AURA")
+    nearbyFrame:RegisterEvent("UNIT_HEALTH")
+    nearbyFrame:RegisterEvent("UNIT_CASTEVENT")
+    nearbyFrame:SetScript("OnEvent", function()
+        if event == "UPDATE_MOUSEOVER_UNIT" then
+            NearbyAdd("mouseover")
+        elseif event == "PLAYER_TARGET_CHANGED" then
+            NearbyAdd("target")
+        else
+            NearbyAdd(arg1)
+        end
+    end)
+end
+
+-- Remembers a group member and notes which unit token it has, so group members
+-- are scanned by their usual token instead of by GUID.
+local function NearbyAddGroupUnit(unit)
+    local _, guid = UnitExists(unit)
+    if guid then
+        nearbyGuids[guid] = true
+        nearbyGroupToken[guid] = unit
+    end
+end
+
+-- Fills scanPlayers and scanPets with the healable friendly units within range yards,
+-- whether or not they are in the group. Returns the number of players and pets found.
+local function CollectNearbyUnits(range, wantPets, debugOn)
+    local nPlayers, nPets = 0, 0
+
+    for guid in pairs(nearbyGroupToken) do
+        nearbyGroupToken[guid] = nil
+    end
+    NearbyAddGroupUnit('player')
+    NearbyAddGroupUnit('pet')
+    if InRaid() then
+        for i = 1, GetNumRaidMembers() do
+            NearbyAddGroupUnit(RaidUnit[i])
+            NearbyAddGroupUnit(RaidPetUnit[i])
+        end
+    else
+        for i = 1, GetNumPartyMembers() do
+            NearbyAddGroupUnit(PartyUnit[i])
+            NearbyAddGroupUnit(PartyPetUnit[i])
+        end
+    end
+    NearbyAdd('target')
+    NearbyAdd('mouseover')
+
+    -- Position of the player, only needed when UnitXP cannot report distances
+    local px, py, pz
+    if not has_unitxp and UnitPosition then
+        local ok, x, y, z = pcall(UnitPosition, 'player')
+        if ok then
+            px, py, pz = x, y, z
+        end
+    end
+    local playerFlagged = UnitIsPVP('player')
+
+    for guid in pairs(nearbyGuids) do
+        if not UnitExists(guid) then
+            nearbyGuids[guid] = nil -- left the area
+        else
+            local groupToken = nearbyGroupToken[guid]
+            local unit = groupToken or guid
+            if UnitIsHealableNoLoS(unit, debugOn) then
+                local isPlayer = UnitIsPlayer(unit)
+                -- Healing a PvP flagged stranger would flag the player too
+                local wouldFlag = not groupToken and not playerFlagged and UnitIsPVP(unit)
+                if (isPlayer or wantPets) and not wouldFlag then
+                    local distance = QH_GetDistance('player', unit)
+                    if not distance and px then
+                        local ok, x, y, z = pcall(UnitPosition, unit)
+                        if ok and x and y then
+                            local dx, dy, dz = x - px, y - py, (z or 0) - (pz or 0)
+                            distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+                        end
+                    end
+                    -- Unknown distance: leave it to the spell range check
+                    if not distance or distance <= range then
+                        if isPlayer then
+                            nPlayers = nPlayers + 1
+                            scanPlayers[nPlayers] = unit
+                        else
+                            nPets = nPets + 1
+                            scanPets[nPets] = unit
+                        end
+                    elseif debugOn then
+                        QuickHeal_debug(UnitFullName(unit) .. " (" .. unit .. ")", "is further away than " .. range .. " yards");
+                    end
+                end
+            end
+        end
+    end
+    return nPlayers, nPets
+end
+
+-- Handles '/qh nearby [yards]'. Returns true if msg was that command.
+function QuickHeal_Command_Nearby(msg)
+    if not msg then return false end
+    local _, _, yards = string.find(string.lower(msg), "^%s*nearby%s*(%d*)%s*$")
+    if not yards then return false end
+    QuickHeal("nearby", nil, { range = tonumber(yards) })
+    return true
+end
+
 -- Runs the expensive checks on one candidate, cheapest first.
 -- Returns 1 if the unit can be healed, 0 if it cannot, nil if the check spell could not be cast.
 -- hasHoT is an optional function(unit); units for which it returns true are rejected.
@@ -3027,13 +3166,20 @@ local function FindWhoToHeal(Restrict, extParam)
     elseif Restrict == "nonmt" then
         QuickHeal_debug("********** Heal Non MT **********");
         RestrictNonMT = true;
+    elseif Restrict == "nearby" then
+        QuickHeal_debug("********** Heal Nearby **********");
     else
         QuickHeal_debug("********** Heal **********");
     end
 
     -- Gather healable players and pets (cheap checks only)
-    local nPlayers, nPets = CollectScanUnits(RestrictParty, RestrictSubgroup, RestrictMT, RestrictNonMT,
-        PetPriority > 0, debugOn);
+    local nPlayers, nPets;
+    if Restrict == "nearby" then
+        nPlayers, nPets = CollectNearbyUnits((extParam and extParam.range) or 40, PetPriority > 0, debugOn);
+    else
+        nPlayers, nPets = CollectScanUnits(RestrictParty, RestrictSubgroup, RestrictMT, RestrictNonMT,
+            PetPriority > 0, debugOn);
+    end
 
     local healingTarget = nil;
     local healingTargetHealthPct = 1;
@@ -3904,6 +4050,16 @@ function QuickHeal(Target, SpellID, extParam, forceMaxHPS)
     if Target == "party" or Target == "subgroup" then
         Restrict = Target;
         Target = nil;
+    elseif Target == "nearby" then
+        if has_superwow then
+            Restrict = Target;
+            Target = nil;
+        else
+            Message("Healing nearby units requires SuperWoW", "Error", 2);
+            SetCVar("autoSelfCast", AutoSelfCast);
+            QuickHealBusy = false;
+            return;
+        end
     elseif Target == "mt" or Target == "nonmt" then
         if InRaid() then
             Restrict = Target;
@@ -4003,7 +4159,7 @@ function QuickHeal(Target, SpellID, extParam, forceMaxHPS)
                     else
                         Message("No Main Tank to heal", "Info", 2);
                     end
-                elseif InParty() or InRaid() then
+                elseif Restrict == "nearby" or InParty() or InRaid() then
                     Message("No one to heal", "Info", 2);
                 else
                     Message("You don't need healing", "Info", 2);

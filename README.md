@@ -33,8 +33,9 @@ Constrain who can be healed by adding a mask before the command:
 | `subgroup` | Configured raid subgroups |
 | `mt` | Main tanks only |
 | `nonmt` | Non-tanks only |
+| `nearby [yards]` | Any friendly unit within `yards` (default 40), grouped or not. Requires SuperWoW; direct heals only |
 
-Examples: `/qh mt` heals only tanks. `/qh party hot` casts a HoT on a party member.
+Examples: `/qh mt` heals only tanks. `/qh nearby 30` heals the most hurt friendly unit within 30 yards. `/qh party hot` casts a HoT on a party member.
 
 ### Heal Types and Modifiers
 
