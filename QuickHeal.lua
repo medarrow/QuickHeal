@@ -6,8 +6,8 @@ QuickHeal = AceLibrary("AceAddon-2.0"):new("AceConsole-2.0", "AceEvent-2.0")
 --[ Mod data ]--
 QuickHealData = {
     name = 'QuickHeal',
-    version = 'TW 1.18.0',
-    releaseDate = 'December 1st, 2022',
+    version = 'TW 1.19.0',
+    releaseDate = 'November 10th, 2026',
     author = 'T. Thorsen, S. Geeding and K. Karachalios feat. Dispatchio',
     website = 'https://turtle-wow.org/',
     category = MYADDONS_CATEGORY_CLASS
