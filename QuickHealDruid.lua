@@ -171,7 +171,7 @@ function QuickHeal_Druid_FindHealSpellToUse(target, healType, multiplier, forceM
     end
 
     debug("Target debuff healing modifier", HDB)
-    healneed = healneed / HDB
+    healneed = QuickHeal_ApplyHealMargin(healneed / HDB)
 
     -- Return if no target needs healing
     if target and not target then

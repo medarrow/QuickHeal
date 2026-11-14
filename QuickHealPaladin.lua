@@ -151,6 +151,7 @@ function QuickHeal_Paladin_FindSpellToUse(target, healType, multiplier, forceMax
     healneed = healneed / HDB
 
     if healneed <= 0 then return nil, 0 end
+    healneed = QuickHeal_ApplyHealMargin(healneed)
 
     -- Check for overheal
     if multiplier and multiplier > 1.0 then
@@ -199,7 +200,7 @@ function QuickHeal_Paladin_FindSpellToUse(target, healType, multiplier, forceMax
             else
                 SpellID = SpellIDsHL[1]; HealSize = (43 + healMod25 * PF[1]) * hlMod
             end
-            if (healneed > (83 + healMod25 * PF[6]) * hlMod * K or 2 <= minRankNH) and ManaLeft >= 60 and maxRankHL >= 2 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 1 or NoFL) and SpellIDsHL[2] then
+            if (healneed > (83 + healMod25 * PF[6]) * hlMod * K or 2 <= minRankNH) and ManaLeft >= 60 and maxRankHL >= 2 and downRankNH >= 2 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 1 or NoFL) and SpellIDsHL[2] then
                 SpellID = SpellIDsHL[2]; HealSize = (83 + healMod25 * PF[6]) * hlMod
             end
             if (healneed > (102 + healMod15) * hlMod * k or 2 <= minRankFH) and ManaLeft >= 50 and maxRankFL >= 2 and downRankFH >= 2 and SpellIDsFL[2] then
@@ -208,7 +209,7 @@ function QuickHeal_Paladin_FindSpellToUse(target, healType, multiplier, forceMax
             if (healneed > (153 + healMod15) * hlMod * k or 3 <= minRankFH) and ManaLeft >= 70 and maxRankFL >= 3 and downRankFH >= 3 and SpellIDsFL[3] then
                 SpellID = SpellIDsFL[3]; HealSize = (153 + healMod15) * hlMod
             end
-            if (healneed > (173 + healMod25 * PF[14]) * hlMod * K or 3 <= minRankNH) and ManaLeft >= 110 and maxRankHL >= 3 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 3 or NoFL) and SpellIDsHL[3] then
+            if (healneed > (173 + healMod25 * PF[14]) * hlMod * K or 3 <= minRankNH) and ManaLeft >= 110 and maxRankHL >= 3 and downRankNH >= 3 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 3 or NoFL) and SpellIDsHL[3] then
                 SpellID = SpellIDsHL[3]; HealSize = (173 + healMod25 * PF[14]) * hlMod
             end
             if (healneed > (206 + healMod15) * hlMod * k or 4 <= minRankFH) and ManaLeft >= 90 and maxRankFL >= 4 and downRankFH >= 4 and SpellIDsFL[4] then
@@ -217,7 +218,7 @@ function QuickHeal_Paladin_FindSpellToUse(target, healType, multiplier, forceMax
             if (healneed > (278 + healMod15) * hlMod * k or 5 <= minRankFH) and ManaLeft >= 115 and maxRankFL >= 5 and downRankFH >= 5 and SpellIDsFL[5] then
                 SpellID = SpellIDsFL[5]; HealSize = (278 + healMod15) * hlMod
             end
-            if (healneed > (333 + healMod25) * hlMod * K or 4 <= minRankNH) and ManaLeft >= 190 and maxRankHL >= 4 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 5 or NoFL) and SpellIDsHL[4] then
+            if (healneed > (333 + healMod25) * hlMod * K or 4 <= minRankNH) and ManaLeft >= 190 and maxRankHL >= 4 and downRankNH >= 4 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 5 or NoFL) and SpellIDsHL[4] then
                 SpellID = SpellIDsHL[4]; HealSize = (333 + healMod25) * hlMod
             end
             if (healneed > (348 + healMod15) * hlMod * k or 6 <= minRankFH) and ManaLeft >= 140 and maxRankFL >= 6 and downRankFH >= 6 and SpellIDsFL[6] then
@@ -226,19 +227,19 @@ function QuickHeal_Paladin_FindSpellToUse(target, healType, multiplier, forceMax
             if (healneed > (428 + healMod15) * hlMod * k or 7 <= minRankFH) and ManaLeft >= 180 and maxRankFL >= 7 and downRankFH >= 7 and SpellIDsFL[7] then
                 SpellID = SpellIDsFL[7]; HealSize = (428 + healMod15) * hlMod
             end
-            if (healneed > (522 + healMod25) * hlMod * K or 5 <= minRankNH) and ManaLeft >= 275 and maxRankHL >= 5 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[5] then
+            if (healneed > (522 + healMod25) * hlMod * K or 5 <= minRankNH) and ManaLeft >= 275 and maxRankHL >= 5 and downRankNH >= 5 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[5] then
                 SpellID = SpellIDsHL[5]; HealSize = (522 + healMod25) * hlMod
             end
-            if (healneed > (739 + healMod25) * hlMod * K or 6 <= minRankNH) and ManaLeft >= 365 and maxRankHL >= 6 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[6] then
+            if (healneed > (739 + healMod25) * hlMod * K or 6 <= minRankNH) and ManaLeft >= 365 and maxRankHL >= 6 and downRankNH >= 6 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[6] then
                 SpellID = SpellIDsHL[6]; HealSize = (739 + healMod25) * hlMod
             end
-            if (healneed > (999 + healMod25) * hlMod * K or 7 <= minRankNH) and ManaLeft >= 465 and maxRankHL >= 7 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[7] then
+            if (healneed > (999 + healMod25) * hlMod * K or 7 <= minRankNH) and ManaLeft >= 465 and maxRankHL >= 7 and downRankNH >= 7 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[7] then
                 SpellID = SpellIDsHL[7]; HealSize = (999 + healMod25) * hlMod
             end
-            if (healneed > (1317 + healMod25) * hlMod * K or 8 <= minRankNH) and ManaLeft >= 580 and maxRankHL >= 8 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[8] then
+            if (healneed > (1317 + healMod25) * hlMod * K or 8 <= minRankNH) and ManaLeft >= 580 and maxRankHL >= 8 and downRankNH >= 8 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[8] then
                 SpellID = SpellIDsHL[8]; HealSize = (1317 + healMod25) * hlMod
             end
-            if (healneed > (1680 + healMod25) * hlMod * K or 9 <= minRankNH) and ManaLeft >= 660 and maxRankHL >= 9 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[9] then
+            if (healneed > (1680 + healMod25) * hlMod * K or 9 <= minRankNH) and ManaLeft >= 660 and maxRankHL >= 9 and downRankNH >= 9 and ((TargetIsHealthy or ForceHL) and maxRankFL <= 7 or NoFL) and SpellIDsHL[9] then
                 SpellID = SpellIDsHL[9]; HealSize = (1680 + healMod25) * hlMod
             end
         end
@@ -265,19 +266,19 @@ function QuickHeal_Paladin_FindSpellToUse(target, healType, multiplier, forceMax
         if ManaLeft >= 180 and maxRankFL >= 7 and downRankFH >= 7 and SpellIDsFL[7] then
             SpellID = SpellIDsFL[7]; HealSize = (428 + healMod15) * hlMod
         end
-        if ManaLeft >= 275 and maxRankHL >= 5 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[5] then
+        if ManaLeft >= 275 and maxRankHL >= 5 and downRankNH >= 5 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[5] then
             SpellID = SpellIDsHL[5]; HealSize = (522 + healMod25) * hlMod
         end
-        if ManaLeft >= 365 and maxRankHL >= 6 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[6] then
+        if ManaLeft >= 365 and maxRankHL >= 6 and downRankNH >= 6 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[6] then
             SpellID = SpellIDsHL[6]; HealSize = (739 + healMod25) * hlMod
         end
-        if ManaLeft >= 465 and maxRankHL >= 7 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[7] then
+        if ManaLeft >= 465 and maxRankHL >= 7 and downRankNH >= 7 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[7] then
             SpellID = SpellIDsHL[7]; HealSize = (999 + healMod25) * hlMod
         end
-        if ManaLeft >= 580 and maxRankHL >= 8 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[8] then
+        if ManaLeft >= 580 and maxRankHL >= 8 and downRankNH >= 8 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[8] then
             SpellID = SpellIDsHL[8]; HealSize = (1317 + healMod25) * hlMod
         end
-        if ManaLeft >= 660 and maxRankHL >= 9 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[9] then
+        if ManaLeft >= 660 and maxRankHL >= 9 and downRankNH >= 9 and (ForceHL and maxRankFL <= 7 or NoFL) and SpellIDsHL[9] then
             SpellID = SpellIDsHL[9]; HealSize = (1680 + healMod25) * hlMod
         end
     end

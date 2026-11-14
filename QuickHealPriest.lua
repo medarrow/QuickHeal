@@ -145,6 +145,7 @@ function QuickHeal_Priest_FindHealSpellToUse(target, healType, multiplier, force
     end
 
     if healneed <= 0 then return nil, 0 end
+    healneed = QuickHeal_ApplyHealMargin(healneed)
 
     -- Get modifiers
     local mods                                       = GetPriestModifiers()

@@ -501,6 +501,19 @@
                 </FontString>
             </Layer>
 
+            <!-- HealMargin Text -->
+            <Layer level="ARTWORK">
+                <FontString name="QuickHealConfig_TextHealMargin" inherits="GameFontNormalSmall" text="">
+                    <Anchors>
+                        <Anchor point="TOPLEFT">
+                            <Offset>
+                                <AbsDimension x="65" y="-348"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+            </Layer>
+
             <!-- Aggro based precast Text -->
             <Layer level="ARTWORK">
                 <FontString name="QuickHealConfig_TextPrecastAggro" inherits="GameFontNormalSmall" text="Aggro based precast">
@@ -899,6 +912,46 @@
                     <OnEnter>
                         GameTooltip:SetOwner(this,"ANCHOR_TOPLEFT");
                         GameTooltip:SetText("Only cancel overheal if remaining cast time is less than this value (Seconds). 0 to disable.");
+                        this.tooltipShown = true;
+                    </OnEnter>
+                    <OnLeave>
+                        GameTooltip:Hide();
+                        this.tooltipShown = false;
+                    </OnLeave>
+                </Scripts>
+            </Slider>
+
+            <!-- HealMargin Slider -->
+            <Slider name="QuickHealConfig_HealMarginSlider" inherits="OptionsSliderTemplate">
+                <Size>
+                    <AbsDimension x="240" y="16"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT">
+                        <Offset>
+                            <AbsDimension x="65" y="-361"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnLoad>
+                        this:SetMinMaxValues(-50,50);
+                        this:SetValueStep(5);
+                    </OnLoad>
+                    <OnValueChanged>
+                        local percent = math.floor(this:GetValue() / 5 + 0.5) * 5;
+                        QuickHealVariables["HealMargin"] = percent / 100;
+                        QuickHealConfig_TextHealMargin:SetText("Heal Size Margin: " .. (percent > 0 and "+" or "") .. percent .. "%");
+                        if( this.tooltipShown ) then
+                        GameTooltip:SetText(QuickHeal_GetExplanation("HealMargin"), nil, nil, nil, nil, 1);
+                        end
+                    </OnValueChanged>
+                    <OnShow>
+                        this:SetValue((QuickHealVariables["HealMargin"] or 0) * 100);
+                    </OnShow>
+                    <OnEnter>
+                        GameTooltip:SetOwner(this,"ANCHOR_TOPLEFT");
+                        GameTooltip:SetText(QuickHeal_GetExplanation("HealMargin"), nil, nil, nil, nil, 1);
                         this.tooltipShown = true;
                     </OnEnter>
                     <OnLeave>
@@ -2001,7 +2054,7 @@
                         this:SetValueStep(1);
                     </OnLoad>
                     <OnValueChanged>
-                        QuickHealVariables["DownrankValueNH"] = this:GetValue();
+                        QuickHealVariables["DownrankValueNH"] = math.floor(this:GetValue() + 0.5);
                         QuickHealDownrank_RankNumberTop:SetText(QuickHealVariables["DownrankValueNH"]);
                     </OnValueChanged>
                     <OnShow>
@@ -2037,7 +2090,7 @@
                         this:SetValueStep(1);
                     </OnLoad>
                     <OnValueChanged>
-                        QuickHealVariables["DownrankValueFH"] = this:GetValue();
+                        QuickHealVariables["DownrankValueFH"] = math.floor(this:GetValue() + 0.5);
                         QuickHealDownrank_RankNumberBot:SetText(QuickHealVariables["DownrankValueFH"]);
                     </OnValueChanged>
                     <OnShow>
@@ -2074,7 +2127,7 @@
                         this:SetValue(1)
                     </OnLoad>
                     <OnValueChanged>
-                        QuickHealVariables["MinrankValueNH"] = this:GetValue();
+                        QuickHealVariables["MinrankValueNH"] = math.floor(this:GetValue() + 0.5);
                         QuickHealMinrank_RankNumberTop:SetText(QuickHealVariables["MinrankValueNH"]);
                     </OnValueChanged>
                     <OnShow>
@@ -2111,7 +2164,7 @@
                         this:SetValue(1)
                     </OnLoad>
                     <OnValueChanged>
-                        QuickHealVariables["MinrankValueFH"] = this:GetValue();
+                        QuickHealVariables["MinrankValueFH"] = math.floor(this:GetValue() + 0.5);
                         QuickHealMinrank_RankNumberBot:SetText(QuickHealVariables["MinrankValueFH"]);
                     </OnValueChanged>
                     <OnShow>
@@ -2148,7 +2201,7 @@
                         this:SetValue(3)
                     </OnLoad>
                     <OnValueChanged>
-                        QuickHealVariables["DownrankValueCH"] = this:GetValue();
+                        QuickHealVariables["DownrankValueCH"] = math.floor(this:GetValue() + 0.5);
                         QuickHealDownrank_RankNumberCH:SetText(QuickHealVariables["DownrankValueCH"]);
                     </OnValueChanged>
                     <OnShow>
@@ -2185,7 +2238,7 @@
                         this:SetValue(1)
                     </OnLoad>
                     <OnValueChanged>
-                        QuickHealVariables["MinrankValueCH"] = this:GetValue();
+                        QuickHealVariables["MinrankValueCH"] = math.floor(this:GetValue() + 0.5);
                         QuickHealMinrank_RankNumberCH:SetText(QuickHealVariables["MinrankValueCH"]);
                     </OnValueChanged>
                     <OnShow>
@@ -2680,54 +2733,6 @@
                 </Layers>
             </Frame>
             
-            <!-- New Labels for Max Rank Sliders -->
-            <Frame>
-                <Layers>
-                    <Layer level="ARTWORK">
-                        <FontString name="QuickHealDownrank_Label_NH" inherits="GameFontHighlightSmall" text="Slow Heal">
-                            <Anchors>
-                                <Anchor point="TOPLEFT" relativeTo="QuickHeal_DownrankSlider">
-                                    <Offset><AbsDimension x="25" y="-30"/></Offset>
-                                </Anchor>
-                            </Anchors>
-                        </FontString>
-                    </Layer>
-                </Layers>
-            </Frame>
-
-            <!-- Downrank Slider NH (Maximum) -->
-            <Slider name="QuickHealDownrank_Slider_NH" inherits="OptionsSliderTemplate" hidden="false">
-                <Size>
-                    <AbsDimension x="200" y="16"/>
-                </Size>
-                <Anchors>
-                    <Anchor point="TOPLEFT">
-                        <Offset>
-                            <AbsDimension x="20" y="-45"/>
-                        </Offset>
-                    </Anchor>
-                </Anchors>
-                <Scripts>
-                    <OnLoad>
-                        this:SetMinMaxValues(1,12);
-                        this:SetValueStep(1);
-                        this:SetValue(12)
-                    </OnLoad>
-                    <OnValueChanged>
-                        QuickHealVariables["DownrankValueNH"] = this:GetValue();
-                        QuickHealDownrank_RankNumberTop:SetText(QuickHealVariables["DownrankValueNH"]);
-                    </OnValueChanged>
-                    <OnShow>
-                    </OnShow>
-                    <OnEnter>
-                    </OnEnter>
-                    <OnLeave>
-                        GameTooltip:Hide();
-                        this.tooltipShown = false;
-                    </OnLeave>
-                </Scripts>
-            </Slider>
-            
             <Button name="QuickHeal_MTList" inherits="GameMenuButtonTemplate" text="MT">
                 <Size>
                     <AbsDimension x="90" y="20"/>
@@ -2764,52 +2769,6 @@
 
         </Frames>
         <Layers>
-            <!-- Maximum rank display labels -->
-            <Layer level="ARTWORK">
-                <FontString name="QuickHealDownrank_RankNumberTop" outline="NORMAL" inherits="GameFontNormal" text="">
-                    <Anchors>
-                        <Anchor point="CENTER" relativePoint="TOP">
-                            <Offset>
-                                <AbsDimension x="108" y="-53"/>
-                            </Offset>
-                        </Anchor>
-                    </Anchors>
-                </FontString>
-            </Layer>
-            <Layer level="ARTWORK">
-                <FontString name="QuickHealDownrank_RankNumberBot" outline="NORMAL" inherits="GameFontNormal" text="">
-                    <Anchors>
-                        <Anchor point="CENTER" relativePoint="TOP">
-                            <Offset>
-                                <AbsDimension x="108" y="-108"/>
-                            </Offset>
-                        </Anchor>
-                    </Anchors>
-                </FontString>
-            </Layer>
-            <!-- Minimum rank display labels -->
-            <Layer level="ARTWORK">
-                <FontString name="QuickHealMinrank_RankNumberTop" outline="NORMAL" inherits="GameFontNormal" text="">
-                    <Anchors>
-                        <Anchor point="CENTER" relativePoint="TOP">
-                            <Offset>
-                                <AbsDimension x="108" y="-183"/>
-                            </Offset>
-                        </Anchor>
-                    </Anchors>
-                </FontString>
-            </Layer>
-            <Layer level="ARTWORK">
-                <FontString name="QuickHealMinrank_RankNumberBot" outline="NORMAL" inherits="GameFontNormal" text="">
-                    <Anchors>
-                        <Anchor point="CENTER" relativePoint="TOP">
-                            <Offset>
-                                <AbsDimension x="108" y="-238"/>
-                            </Offset>
-                        </Anchor>
-                    </Anchors>
-                </FontString>
-            </Layer>
             <!-- Markers for max rank sliders -->
             <Layer level="ARTWORK">
                 <FontString name="QuickHealDownrank_MarkerTop" outline="NORMAL" inherits="GameFontNormal" text=">">

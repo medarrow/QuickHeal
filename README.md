@@ -215,6 +215,7 @@ Cast Chain Heal on the lowest health target.
 Open the config panel with `/qh cfg`. Key settings:
 
 - **Healthy Threshold**: HP percentage above which targets are skipped. Below this threshold, fast heals (Flash Heal, Regrowth, etc.) are used in combat; above it, slow efficient heals are used.
+- **Heal Size Margin**: -50% to +50% (default 0). Scales the missing health a direct heal rank is picked for. Above zero uses higher ranks, to cover damage taken during the cast; below zero uses lower ranks, leaving room for crits and other healers. Never goes past the Maximum Rank sliders. HoTs are not affected.
 - **Force Self-Heal**: Prioritize self when below this HP percentage.
 - **Target Priority**: Always heal current target first if they need healing.
 - **Subgroups**: Select which raid groups to include when healing.

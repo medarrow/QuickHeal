@@ -6,8 +6,8 @@ QuickHeal = AceLibrary("AceAddon-2.0"):new("AceConsole-2.0", "AceEvent-2.0")
 --[ Mod data ]--
 QuickHealData = {
     name = 'QuickHeal',
-    version = 'TW 1.19.0',
-    releaseDate = 'November 10th, 2026',
+    version = 'TW 1.18.0',
+    releaseDate = 'December 1st, 2022',
     author = 'T. Thorsen, S. Geeding and K. Karachalios feat. Dispatchio',
     website = 'https://turtle-wow.org/',
     category = MYADDONS_CATEGORY_CLASS
@@ -68,6 +68,7 @@ local DQHV = { -- Default values
     MinrankValueCH = 1,                            -- Minimum rank for Chain Heal (Shaman only)
     DownrankValueNH = 12,                          -- Maximum rank for Normal Heal (default: 12 for max class ranks)
     DownrankValueFH = 7,                           -- Maximum rank for Fast Heal (default: 7 for max class ranks)
+    HealMargin = 0,                                -- Heal size margin: fraction added to (below zero: taken off) the missing health a rank is picked for
     DownrankValueCH = 3,                           -- Maximum rank for Chain Heal (Shaman only)
     PrecastAggro = false,                          -- Precast spells on aggro targets even when not meeting general healing threshold
     PrecastAggroPreference = "HIGHEST_MAX_HEALTH", -- Preference for aggro target selection: HIGHEST_MAX_HEALTH or LOWEST_MAX_HEALTH
@@ -509,6 +510,17 @@ function QuickHeal_GetTargetHealth(target, maxhealth, healDeficit, multiplier, h
     healneed = healneed / healDebuffMod;
 
     return healneed, healthPercent, healDebuffMod;
+end
+
+-- Applies the Heal Size Margin setting to the amount of healing a rank is picked for.
+-- Above zero picks bigger heals (covers damage taken during the cast), below zero picks
+-- smaller ones (leaves room for crits and other healers).
+function QuickHeal_ApplyHealMargin(healneed)
+    local margin = QuickHealVariables.HealMargin;
+    if margin and margin ~= 0 then
+        return healneed * (1 + margin);
+    end
+    return healneed;
 end
 
 -- Get combat multipliers (k for fast spells, K for slow spells)
@@ -1225,6 +1237,21 @@ local function Initialise()
         PlayerClass = class and string.lower(class) or "unknown";
     end
 
+    -- Setting a slider's range can clamp its value, and the slider then writes the clamped
+    -- value over the saved setting. Remember the saved ranks and put them back afterwards.
+    local rankSliders = {
+        DownrankValueNH = "QuickHealDownrank_Slider_NH",
+        DownrankValueFH = "QuickHealDownrank_Slider_FH",
+        DownrankValueCH = "QuickHealDownrank_Slider_CH",
+        MinrankValueNH = "QuickHealMinrank_Slider_NH",
+        MinrankValueFH = "QuickHealMinrank_Slider_FH",
+        MinrankValueCH = "QuickHealMinrank_Slider_CH",
+    };
+    local savedRanks = {};
+    for key in pairs(rankSliders) do
+        savedRanks[key] = QHV[key];
+    end
+
     if PlayerClass == "shaman" then
         FindChainHealSpellToUse = QuickHeal_Shaman_FindChainHealSpellToUse;
         FindChainHealSpellToUseNoTarget = QuickHeal_Shaman_FindChainHealSpellToUseNoTarget;
@@ -1336,7 +1363,6 @@ local function Initialise()
         QuickHealMinrank_Label_NH:SetText("Holy Light");
         QuickHealMinrank_Label_FH:SetText("Flash of Light");
 
-        QuickHealDownrank_RankNumberBot:SetPoint("CENTER", QuickHeal_DownrankSlider, "TOP", 108, -108); -- Reset position if it was moved
         QuickHealMinrank_Slider_FH:SetValue(QuickHealVariables.MinrankValueFH);
 
         -- Hide Chain Heal sliders (Shaman only)
@@ -1398,6 +1424,19 @@ local function Initialise()
             QuickHealData.version ..
             " does not support " .. UnitClass('player') .. ". " .. QuickHealData.name .. " not loaded.")
         return;
+    end
+
+    -- Put the saved rank limits back (see above); the slider clamps them to the class' ranks
+    for key, sliderName in pairs(rankSliders) do
+        local value = savedRanks[key];
+        if type(value) == "number" then
+            value = math.floor(value + 0.5);
+            QHV[key] = value;
+            local slider = getglobal(sliderName);
+            if slider then
+                slider:SetValue(value);
+            end
+        end
     end
 
     -- '/qh nearby [yards]' is the same for every class, so it is handled in front of the class command
@@ -1949,6 +1988,17 @@ function QuickHeal_GetExplanation(Parameter)
             return "Will only heal targets with less than " .. QHV.RatioFull * 100 .. "% health.";
         else
             return QuickHealData.name .. " is disabled.";
+        end
+    end
+
+    if Parameter == "HealMargin" then
+        local margin = QHV.HealMargin or 0;
+        if margin > 0 then
+            return "Heals are sized for " .. margin * 100 .. "% more than the missing health, so higher ranks are used. Covers damage taken during the cast.";
+        elseif margin < 0 then
+            return "Heals are sized for " .. -margin * 100 .. "% less than the missing health, so lower ranks are used. Leaves room for crits and other healers.";
+        else
+            return "Heals are sized for the missing health. Raise for bigger heals, lower for smaller heals (room for crits).";
         end
     end
 

@@ -143,7 +143,7 @@ function QuickHeal_Shaman_FindChainHealSpellToUse(target, healType, multiplier, 
     end
 
     debug("Target debuff healing modifier", HDB)
-    healneed = healneed / HDB
+    healneed = QuickHeal_ApplyHealMargin(healneed / HDB)
 
     -- Get modifiers
     local mods = GetShamanModifiers()
@@ -242,7 +242,7 @@ function QuickHeal_Shaman_FindHealSpellToUse(target, healType, multiplier, force
     end
 
     debug("Target debuff healing modifier", HDB)
-    healneed = healneed / HDB
+    healneed = QuickHeal_ApplyHealMargin(healneed / HDB)
 
     if healneed <= 0 then return nil, 0 end
 
