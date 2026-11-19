@@ -256,7 +256,10 @@ QuickHeal includes intelligent stopcasting to prevent wasted heals. When a heal 
 
 1. **Target dies** — always stops immediately.
 2. **Line of Sight lost** — stops if target moves behind a wall (requires UnitXP).
-3. **Overheal threshold exceeded** — stops if the heal would waste too much health.
+3. **Heal no longer needed** — stops if the target (plus other healers' incoming heals) is back above the General Healing Threshold.
+4. **Overheal threshold exceeded** — stops if the heal would waste too much health.
+
+Conditions 2–4 are only checked once the cast has started and inside the Cancel Window. Conditions 3 and 4 are skipped for heals that were started on a target already above the threshold (aggro precasts, explicit-spell casts such as Prayer of Healing, test mode).
 
 ### Settings
 

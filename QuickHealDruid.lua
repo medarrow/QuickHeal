@@ -165,7 +165,7 @@ function QuickHeal_Druid_FindHealSpellToUse(target, healType, multiplier, forceM
     else
         if not maxhealth or maxhealth <= 0 then return nil, 0 end
         healneed = healDeficit * multiplier
-        Health = healDeficit / maxhealth
+        Health = 1 - healDeficit / maxhealth
         HDB = hdb or 1
         incombat = UnitAffectingCombat('player') or incombat
     end
@@ -332,7 +332,7 @@ function QuickHeal_Druid_FindHoTSpellToUse(target, healType, forceMaxRank, maxhe
     else
         if not maxhealth or maxhealth <= 0 then return nil, 0 end
         healneed = (healDeficit or 0) * (1) -- multiplier not used for HoT
-        Health = (healDeficit or 0) / maxhealth
+        Health = 1 - (healDeficit or 0) / maxhealth
         HDB = hdb or 1
         incombat = UnitAffectingCombat('player') or incombat
     end

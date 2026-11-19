@@ -137,7 +137,7 @@ function QuickHeal_Shaman_FindChainHealSpellToUse(target, healType, multiplier, 
         -- NoTarget mode
         if not maxhealth or maxhealth <= 0 then return nil, 0 end
         healneed = healDeficit * multiplier
-        Health = healDeficit / maxhealth
+        Health = 1 - healDeficit / maxhealth
         HDB = hdb or 1
         hwMod = 1 -- Can't detect Healing Way without target
     end
@@ -185,7 +185,7 @@ function QuickHeal_Shaman_FindChainHealSpellToUse(target, healType, multiplier, 
     else
         -- Force max rank available within downrank limit
         if maxRankCH >= 3 and downRankCH >= 3 and SpellIDsCH[3] then
-            SpellID = SpellIDsCH[3]; HealSize = 607 * hwMod + healMod25
+            SpellID = SpellIDsCH[3]; HealSize = (607 + healModCH) * hwMod
         elseif maxRankCH >= 2 and downRankCH >= 2 and SpellIDsCH[2] then
             SpellID = SpellIDsCH[2]; HealSize = (449 + healModCH) * hwMod
         elseif maxRankCH >= 1 and downRankCH >= 1 and SpellIDsCH[1] then
@@ -230,7 +230,7 @@ function QuickHeal_Shaman_FindHealSpellToUse(target, healType, multiplier, force
     else
         if not maxhealth or maxhealth <= 0 then return nil, 0 end
         healneed = healDeficit * multiplier
-        Health = healDeficit / maxhealth
+        Health = 1 - healDeficit / maxhealth
         HDB = hdb or 1
         incombat = UnitAffectingCombat('player') or incombat
         hwMod = 1 -- Can't detect Healing Way without target
@@ -356,7 +356,7 @@ function QuickHeal_Shaman_FindHealSpellToUse(target, healType, multiplier, force
             if (healneed > (142 + healMod25 * PF[12]) * hwMod or 3 <= minRankNH) and ManaLeft >= 80 * tfMod and maxRankHW >= 3 and downRankNH >= 3 and SpellIDsHW[3] then
                 SpellID = SpellIDsHW[3]; HealSize = (142 + healMod25 * PF[12]) * hwMod
             end
-            if (healneed > (174 + healModLHW) * hwMod or 1 <= minRankFH) and ManaLeft >= 105 * tfMod and maxRankLHW >= 1 and downRankFH >= 1 and SpellIDsLHW[1] then
+            if healneed > (174 + healModLHW) * hwMod and ManaLeft >= 105 * tfMod and maxRankLHW >= 1 and downRankFH >= 1 and SpellIDsLHW[1] then
                 SpellID = SpellIDsLHW[1]; HealSize = (174 + healModLHW) * hwMod
             end
             if (healneed > (264 + healModLHW) * hwMod or 2 <= minRankFH) and ManaLeft >= 145 * tfMod and maxRankLHW >= 2 and downRankFH >= 2 and SpellIDsLHW[2] then

@@ -137,7 +137,7 @@ function QuickHeal_Paladin_FindSpellToUse(target, healType, multiplier, forceMax
     else
         if not maxhealth or maxhealth <= 0 then return nil, 0 end
         healneed = healDeficit * multiplier
-        Health = healDeficit / maxhealth
+        Health = 1 - healDeficit / maxhealth
         HDB = hdb or 1
         incombat = UnitAffectingCombat('player') or incombat
     end

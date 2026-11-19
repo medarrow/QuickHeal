@@ -60,7 +60,8 @@ local DQHV = { -- Default values
     DisplayHealingBar = true,
     QuickClickEnabled = false,
     StopcastEnabled = false,
-    OverhealCancelThreshold = 50,
+    MaxOverhealPercent = 50,                       -- Stopcast: cancel when more than this % of the heal would be overheal (0 = never)
+    StopcastCheckWindow = 0,                       -- Stopcast: only cancel in the last N seconds of the cast (0 = any time)
     MTList = {},
     SkipList = {},
     MinrankValueNH = 1,                            -- Minimum rank for Normal Heal (HW/HT/etc)
@@ -343,7 +344,6 @@ function QuickHeal_ReportDLLStatus()
     end
 end
 
-local me = UnitName('player')
 local TWA_Roster = {};
 local QH_RequestedTWARoster = false;
 
@@ -610,27 +610,40 @@ function TWA_RequestTWARoster()
     ChatThrottleLib:SendAddonMessage("ALERT", "QH", "RequestRoster", "RAID")
 end
 
+-- Splits s at every occurrence of the plain-text separator sep
+local function SplitString(s, sep)
+    local parts, start = {}, 1
+    while true do
+        local i = string.find(s, sep, start, true)
+        if not i then
+            table.insert(parts, string.sub(s, start))
+            return parts
+        end
+        table.insert(parts, string.sub(s, start, i - 1))
+        start = i + 1
+    end
+end
+
 function TWA_handleSync(pre, t, ch, sender)
     --jgpprint("pre:" .. pre .. " payload:" .. t .. " ch:" .. ch .. " sender:" .. sender)
 
     QHV.MTList = {};
 
     if string.find(t, 'Tanks=', 1, true) then
-        local roster = string.split(t, ';')
+        local roster = SplitString(t, ';')
 
         -- separate tanks header
-        local tanksdemux = string.split(roster[1], '=')
+        local tanksdemux = SplitString(roster[1], '=')
 
         -- grab tank names and feed into tanks list
-        local tanks = string.split(tanksdemux[2], ',')
+        local tanks = SplitString(tanksdemux[2] or "", ',')
 
-        for _, unit in next, tanks do
-            --jgpprint(data)
-
-            table.insert(QHV.MTList, unit);
-
-            MTListFrame.UpdateYourself = true;
+        for _, unit in ipairs(tanks) do
+            if unit ~= "" then
+                table.insert(QHV.MTList, unit);
+            end
         end
+        MTListFrame.UpdateYourself = true;
         QH_MTListSyncTrigger()
         --jgpprint(roster[1]);
         --jgpprint(roster[2]);
@@ -1556,6 +1569,81 @@ local function GetOtherIncomingHeals(unitName)
     return total
 end
 
+-- State of the cast being monitored (see StartMonitor)
+local MonitorIsPrecast = false   -- target was already above the healing threshold (aggro precast / test mode)
+local MonitorCastStarted = false -- SPELLCAST_START seen for this heal
+local MonitorCastEnd = nil       -- GetTime() at which the cast is expected to finish
+
+-- True while the monitored heal is actually being cast
+local function CastInProgress()
+    if MonitorCastStarted then return true end
+    if has_nampower and GetCastInfo then
+        local ok, info = pcall(GetCastInfo)
+        if ok and info and info.castRemainingMs and info.castRemainingMs > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+-- Seconds left on the current cast, or nil if unknown
+local function CastTimeRemaining()
+    if has_nampower and GetCastInfo then
+        local ok, info = pcall(GetCastInfo)
+        if ok and info and info.castRemainingMs then
+            return info.castRemainingMs / 1000
+        end
+    end
+    if MonitorCastEnd then
+        local left = MonitorCastEnd - GetTime()
+        if left < 0 then left = 0 end
+        return left
+    end
+    return nil
+end
+
+-- True when the Cancel Window setting allows the cast to be stopped now
+local function StopcastWindowOpen()
+    local window = QHV.StopcastCheckWindow or 0
+    if window <= 0 then return true end
+    local left = CastTimeRemaining()
+    return left == nil or left <= window
+end
+
+-- Health fraction of the healing target, counting other healers' incoming heals
+local function MonitorHealthPct()
+    if QuickHeal_UnitHasHealthInfo(HealingTarget) then
+        local otherHeals = GetOtherIncomingHeals(UnitName(HealingTarget))
+        return (QH_GetUnitHealth(HealingTarget) + otherHeals) / QH_GetUnitMaxHealth(HealingTarget)
+    end
+    return QH_GetUnitHealth(HealingTarget) / 100
+end
+
+-- Stops the heal when it is no longer useful (Stopcast option). Returns true if it was stopped.
+local function CheckStopcast()
+    if not (HealingTarget and QHV.StopcastEnabled) then return false end
+    if UnitIsDeadOrGhost(HealingTarget) then
+        SpellStopCasting()
+        StopMonitor("Target died")
+        return true
+    end
+    -- Nothing else is judged before the cast has begun, or outside the Cancel Window
+    if not CastInProgress() or not StopcastWindowOpen() then return false end
+    if not QH_InLineOfSight('player', HealingTarget) then
+        SpellStopCasting()
+        StopMonitor("Target out of line of sight")
+        return true
+    end
+    -- A precast was started on a healthy target on purpose; let it land
+    if MonitorIsPrecast or QHV.TestMode then return false end
+    if MonitorHealthPct() >= QHV.RatioFull then
+        SpellStopCasting()
+        StopMonitor("Heal no longer needed")
+        return true
+    end
+    return false
+end
+
 -- OnUpdate handler for healing bar - polls health during casting
 local HealingBarUpdateInterval = 0.1 -- Check every 100ms
 local HealingBarTimeSinceLastUpdate = 0
@@ -1579,33 +1667,15 @@ function QuickHeal_HealingBar_OnUpdate(elapsed)
         return
     end
 
+    -- The cast never began (e.g. it failed without a SPELLCAST_FAILED): stop blocking new heals
+    if not CastInProgress() and (GetTime() - MonitorStartTime) > 1.5 then
+        StopMonitor("Cast did not start")
+        return
+    end
+
     -- Check stopcast conditions
-    if QHV.StopcastEnabled then
-        -- Stop if target is dead
-        if UnitIsDeadOrGhost(HealingTarget) then
-            SpellStopCasting()
-            StopMonitor("Target died")
-            return
-        end
-        -- Stop if target moved out of range/LOS
-        if not QH_InLineOfSight('player', HealingTarget) then
-            SpellStopCasting()
-            StopMonitor("Target out of line of sight")
-            return
-        end
-        -- Stop if target health (plus other healers' incoming) is above the full threshold
-        local healthPct
-        if QuickHeal_UnitHasHealthInfo(HealingTarget) then
-            local otherHeals = GetOtherIncomingHeals(UnitName(HealingTarget))
-            healthPct = (QH_GetUnitHealth(HealingTarget) + otherHeals) / QH_GetUnitMaxHealth(HealingTarget)
-        else
-            healthPct = QH_GetUnitHealth(HealingTarget) / 100
-        end
-        if healthPct >= QHV.RatioFull then
-            SpellStopCasting()
-            StopMonitor("Heal no longer needed")
-            return
-        end
+    if CheckStopcast() then
+        return
     end
 
     -- Update overheal status (this also handles overheal cancellation)
@@ -1656,8 +1726,10 @@ UpdateQuickHealOverhealStatus = function(multiplier)
         waste = 0;
     end
 
-    -- Cancel heal if overheal exceeds threshold
-    if QHV.StopcastEnabled and QHV.OverhealCancelThreshold and QHV.OverhealCancelThreshold > 0 and waste >= QHV.OverhealCancelThreshold then
+    -- Cancel heal if overheal exceeds the Overheal Cancel Threshold (not for precasts, which overheal on purpose)
+    local cancelPercent = QHV.MaxOverhealPercent
+    if QHV.StopcastEnabled and cancelPercent and cancelPercent > 0 and waste >= cancelPercent
+        and not MonitorIsPrecast and not QHV.TestMode and CastInProgress() and StopcastWindowOpen() then
         SpellStopCasting()
         StopMonitor("Overheal threshold exceeded (" .. floor(waste) .. "%)")
         return
@@ -1682,7 +1754,7 @@ UpdateQuickHealOverhealStatus = function(multiplier)
 
     local font = textframe:GetFont();
     if waste > 50 and HealMultiplier == 1.0 then
-        if OverhealMessagePlaySound then
+        if QHV.OverhealMessagePlaySound then
             PlaySoundFile("Sound\\Doodad\\BellTollTribal.wav")
         end
         QuickHealOverhealStatusScreenCenter:AddMessage(txt, 1, 0, 0, 1, 5);
@@ -1701,6 +1773,9 @@ function StartMonitor(Target, multiplier)
     MassiveOverhealInProgress = false;
     HealingTarget = Target;
     MonitorStartTime = GetTime();
+    MonitorCastStarted = false;
+    MonitorCastEnd = nil;
+    MonitorIsPrecast = MonitorHealthPct() >= QHV.RatioFull;
 
     if multiplier then
         HealMultiplier = multiplier;
@@ -1719,6 +1794,8 @@ function StartMonitor(Target, multiplier)
     QuickHealConfig:RegisterEvent("SPELLCAST_STOP");        -- For detecting spellcast stop
     QuickHealConfig:RegisterEvent("SPELLCAST_FAILED");      -- For detecting spellcast stop
     QuickHealConfig:RegisterEvent("SPELLCAST_INTERRUPTED"); -- For detecting spellcast stop
+    QuickHealConfig:RegisterEvent("SPELLCAST_START");       -- Cast time, for the Cancel Window
+    QuickHealConfig:RegisterEvent("SPELLCAST_DELAYED");     -- Pushback, for the Cancel Window
     UpdateQuickHealOverhealStatus();
     if QHV.OverhealMessageCastingBar then
         QuickHealOverhealStatus:Show()
@@ -1746,7 +1823,11 @@ StopMonitor = function(trigger)
     QuickHealConfig:UnregisterEvent("SPELLCAST_STOP");
     QuickHealConfig:UnregisterEvent("SPELLCAST_FAILED");
     QuickHealConfig:UnregisterEvent("SPELLCAST_INTERRUPTED");
+    QuickHealConfig:UnregisterEvent("SPELLCAST_START");
+    QuickHealConfig:UnregisterEvent("SPELLCAST_DELAYED");
     QuickHeal_debug("*Stopping Monitor", trigger or "Unknown Trigger");
+    MonitorCastStarted = false;
+    MonitorCastEnd = nil;
     HealingTarget = nil;
     HealMultiplier = 1.0;
     QuickHealBusy = false;
@@ -1795,36 +1876,10 @@ end
 function QuickHeal_OnEvent()
     if (event == "UNIT_HEALTH") then
         -- Triggered when someone in the party/raid, current target or mouseover is healed/damaged
-        if UnitIsUnit(HealingTarget, arg1) then
+        if HealingTarget and UnitIsUnit(HealingTarget, arg1) then
             UpdateQuickHealOverhealStatus()
             -- Check if we should stop casting because heal is no longer needed
-            if QHV.StopcastEnabled and HealingTarget then
-                -- Stop if target is dead
-                if UnitIsDeadOrGhost(HealingTarget) then
-                    SpellStopCasting()
-                    StopMonitor("Target died")
-                    return
-                end
-                -- Stop if target moved out of range/LOS (using UnitXP if available)
-                if not QH_InLineOfSight('player', HealingTarget) then
-                    SpellStopCasting()
-                    StopMonitor("Target out of line of sight")
-                    return
-                end
-                -- Stop if target health (plus other healers' incoming) is above the full threshold
-                local healthPct
-                if QuickHeal_UnitHasHealthInfo(HealingTarget) then
-                    local otherHeals = GetOtherIncomingHeals(UnitName(HealingTarget))
-                    healthPct = (QH_GetUnitHealth(HealingTarget) + otherHeals) / QH_GetUnitMaxHealth(HealingTarget)
-                else
-                    healthPct = QH_GetUnitHealth(HealingTarget) / 100
-                end
-                if healthPct >= QHV.RatioFull then
-                    SpellStopCasting()
-                    StopMonitor("Heal no longer needed")
-                    return
-                end
-            end
+            CheckStopcast()
         end
     elseif event == "UNIT_HEALTH_GUID" then
         -- Nampower GUID-based health event: arg1 = GUID of unit whose health changed
@@ -1832,26 +1887,17 @@ function QuickHeal_OnEvent()
             local ok, targetGuid = pcall(GetUnitField, HealingTarget, "guid")
             if ok and targetGuid and arg1 == targetGuid then
                 UpdateQuickHealOverhealStatus()
-                if QHV.StopcastEnabled then
-                    if UnitIsDeadOrGhost(HealingTarget) then
-                        SpellStopCasting()
-                        StopMonitor("Target died")
-                        return
-                    end
-                    local healthPct
-                    if QuickHeal_UnitHasHealthInfo(HealingTarget) then
-                        local otherHeals = GetOtherIncomingHeals(UnitName(HealingTarget))
-                        healthPct = (QH_GetUnitHealth(HealingTarget) + otherHeals) / QH_GetUnitMaxHealth(HealingTarget)
-                    else
-                        healthPct = QH_GetUnitHealth(HealingTarget) / 100
-                    end
-                    if healthPct >= QHV.RatioFull then
-                        SpellStopCasting()
-                        StopMonitor("Heal no longer needed")
-                        return
-                    end
-                end
+                CheckStopcast()
             end
+        end
+    elseif event == "SPELLCAST_START" then
+        -- arg2 = cast time in milliseconds
+        MonitorCastStarted = true
+        MonitorCastEnd = GetTime() + (tonumber(arg2) or 0) / 1000
+    elseif event == "SPELLCAST_DELAYED" then
+        -- arg1 = pushback in milliseconds
+        if MonitorCastEnd then
+            MonitorCastEnd = MonitorCastEnd + (tonumber(arg1) or 0) / 1000
         end
     elseif (event == "SPELLCAST_STOP") or (event == "SPELLCAST_FAILED") or (event == "SPELLCAST_INTERRUPTED") then
         -- With Nampower, check if a cast is still in progress before stopping.
@@ -1880,9 +1926,9 @@ function QuickHeal_OnEvent()
         Initialise();
     elseif (event == "CHAT_MSG_ADDON") then
         if arg1 == "QuickHeal" and arg2 == "versioncheck" then
-            SendAddonMessage("QuickHeal", QuickHealData.version, RAID)
+            SendAddonMessage("QuickHeal", QuickHealData.version, "RAID")
         end
-        if arg1 == "TWA" and arg4 ~= me and QH_RequestedTWARoster then
+        if arg1 == "TWA" and arg4 ~= UnitName('player') and QH_RequestedTWARoster then
             --if arg1 == "TWA" then
             TWA_handleSync(arg1, arg2, arg3, arg4)
             QH_RequestedTWARoster = false;
@@ -2663,6 +2709,7 @@ function GetRotaSpell(class, maxhealth, healDeficit, type, forceMaxHPS, forceMax
 
 
 
+    local myspell, healsize
     if type == "channel" then
         myspell, healsize = FindHealSpellToUseNoTarget(maxhealth, healDeficit, "channel", 1.0, forceMaxHPS, forceMaxRank,
             hdb, incombat);
@@ -2680,12 +2727,17 @@ function GetRotaSpell(class, maxhealth, healDeficit, type, forceMaxHPS, forceMax
 
     --print('spellID:' .. tostring(myspell));
 
+    if not myspell then
+        return nil
+    end
+
     -- Get spell info
     local SpellName, SpellRank = GetSpellName(myspell, BOOKTYPE_SPELL);
-    local rank;
-    if SpellRank == "" then
-        SpellRank = nil
-    else
+    if not SpellName then
+        return nil
+    end
+    local rank = "";
+    if SpellRank and SpellRank ~= "" then
         --rank = string.gsub(SpellRank, '%W+$', "")
         rank = string.gsub(SpellRank, "Rank ", "")
     end
@@ -3455,8 +3507,8 @@ local function FindWhoToHOT(Restrict, extParam, noHpCheck)
     -- Reacquire target if it was cleared earlier, and stop CheckSpell
     RangeCheck_End();
 
-    -- Examine External Target
-    if AllPlayersAreFull and (AllPetsAreFull or PetPriority == 0) then
+    -- Examine External Target (only if still no target found)
+    if not healingTarget and AllPlayersAreFull and (AllPetsAreFull or PetPriority == 0) then
         if not QuickHeal_UnitHasHealthInfo('target') and UnitIsHealable('target', true) then
             QuickHeal_debug(string.format("%s (%s) : %d/%d", UnitFullName('target'), 'target', QH_GetUnitHealth('target'),
                 QH_GetUnitMaxHealth('target')));
@@ -4316,7 +4368,7 @@ local function QuickHOT_Inner(Target, SpellID, extParam, forceMaxRank, noHpCheck
             else
                 targetPercentage = QH_GetUnitHealth(Target) / 100;
             end
-            if targetPercentage >= QHV.RatioFull then
+            if not noHpCheck and not QHV.TestMode and targetPercentage >= QHV.RatioFull then
                 Message(string.format("%s doesn't need healing", UnitFullName(Target) or Target), "Info", 2);
                 if hadHostileTarget then TargetLastTarget(); end
                 return;
