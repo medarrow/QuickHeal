@@ -1452,7 +1452,7 @@ local function Initialise()
         end
     end
 
-    -- '/qh nearby [yards]' is the same for every class, so it is handled in front of the class command
+    -- Commands that are the same for every class are handled in front of the class command
     local classCommand = SlashCmdList["QUICKHEAL"];
     SlashCmdList["QUICKHEAL"] = function(msg)
         if not QuickHeal_Command_Nearby(msg) then
@@ -1571,6 +1571,7 @@ end
 
 -- State of the cast being monitored (see StartMonitor)
 local MonitorIsPrecast = false   -- target was already above the healing threshold (aggro precast / test mode)
+local MonitorSoundPlayed = false -- overheal warning sound already played for this heal
 local MonitorCastStarted = false -- SPELLCAST_START seen for this heal
 local MonitorCastEnd = nil       -- GetTime() at which the cast is expected to finish
 
@@ -1619,26 +1620,31 @@ local function MonitorHealthPct()
     return QH_GetUnitHealth(HealingTarget) / 100
 end
 
+-- Cancels the heal being cast (Stopcast option) and says why
+local function CancelHeal(reason)
+    local name = UnitFullName(HealingTarget) or HealingTarget
+    SpellStopCasting()
+    StopMonitor(reason)
+    Message(string.format("Heal on %s cancelled: %s", name, reason), "Info", 2)
+end
+
 -- Stops the heal when it is no longer useful (Stopcast option). Returns true if it was stopped.
 local function CheckStopcast()
     if not (HealingTarget and QHV.StopcastEnabled) then return false end
     if UnitIsDeadOrGhost(HealingTarget) then
-        SpellStopCasting()
-        StopMonitor("Target died")
+        CancelHeal("target died")
         return true
     end
     -- Nothing else is judged before the cast has begun, or outside the Cancel Window
     if not CastInProgress() or not StopcastWindowOpen() then return false end
     if not QH_InLineOfSight('player', HealingTarget) then
-        SpellStopCasting()
-        StopMonitor("Target out of line of sight")
+        CancelHeal("out of line of sight")
         return true
     end
     -- A precast was started on a healthy target on purpose; let it land
     if MonitorIsPrecast or QHV.TestMode then return false end
     if MonitorHealthPct() >= QHV.RatioFull then
-        SpellStopCasting()
-        StopMonitor("Heal no longer needed")
+        CancelHeal("no longer needed")
         return true
     end
     return false
@@ -1730,8 +1736,7 @@ UpdateQuickHealOverhealStatus = function(multiplier)
     local cancelPercent = QHV.MaxOverhealPercent
     if QHV.StopcastEnabled and cancelPercent and cancelPercent > 0 and waste >= cancelPercent
         and not MonitorIsPrecast and not QHV.TestMode and CastInProgress() and StopcastWindowOpen() then
-        SpellStopCasting()
-        StopMonitor("Overheal threshold exceeded (" .. floor(waste) .. "%)")
+        CancelHeal(floor(waste) .. "% would be overheal")
         return
     end
 
@@ -1754,7 +1759,8 @@ UpdateQuickHealOverhealStatus = function(multiplier)
 
     local font = textframe:GetFont();
     if waste > 50 and HealMultiplier == 1.0 then
-        if QHV.OverhealMessagePlaySound then
+        if QHV.OverhealMessagePlaySound and not MonitorSoundPlayed then
+            MonitorSoundPlayed = true
             PlaySoundFile("Sound\\Doodad\\BellTollTribal.wav")
         end
         QuickHealOverhealStatusScreenCenter:AddMessage(txt, 1, 0, 0, 1, 5);
@@ -1775,6 +1781,7 @@ function StartMonitor(Target, multiplier)
     MonitorStartTime = GetTime();
     MonitorCastStarted = false;
     MonitorCastEnd = nil;
+    MonitorSoundPlayed = false;
     MonitorIsPrecast = MonitorHealthPct() >= QHV.RatioFull;
 
     if multiplier then
@@ -1787,7 +1794,6 @@ function StartMonitor(Target, multiplier)
     QuickHeal_debug("*Starting Monitor", UnitFullName(Target));
     -- Nampower: use GUID-based health events for precise tracking
     if has_nampower and GetUnitField then
-        pcall(SetCVar, "NP_EnableUnitEventsGuid", "1")
         QuickHealConfig:RegisterEvent("UNIT_HEALTH_GUID")
     end
     QuickHealConfig:RegisterEvent("UNIT_HEALTH");           -- For detecting overheal situations
@@ -3120,12 +3126,34 @@ local function CollectNearbyUnits(range, wantPets, debugOn)
     return nPlayers, nPets
 end
 
--- Handles '/qh nearby [yards]'. Returns true if msg was that command.
+-- Commands shared by every class, handled before the class command:
+--   /qh nearby [yards], /qh sound on|off, /qh stopcast on|off
+-- Returns true if msg was one of them.
 function QuickHeal_Command_Nearby(msg)
     if not msg then return false end
-    local _, _, yards = string.find(string.lower(msg), "^%s*nearby%s*(%d*)%s*$")
-    if not yards then return false end
-    QuickHeal("nearby", nil, { range = tonumber(yards) })
+    local cmd = string.lower(msg)
+    local _, _, yards = string.find(cmd, "^%s*nearby%s*(%d*)%s*$")
+    if yards then
+        QuickHeal("nearby", nil, { range = tonumber(yards) })
+        return true
+    end
+    local _, _, setting, state = string.find(cmd, "^%s*(%a+)%s*(%a*)%s*$")
+    local key = (setting == "sound" and "OverhealMessagePlaySound") or (setting == "stopcast" and "StopcastEnabled")
+    if not key then return false end
+    if state == "on" then
+        QHV[key] = true
+    elseif state == "off" then
+        QHV[key] = false
+    elseif state == "" then
+        QHV[key] = not QHV[key]
+    else
+        return false
+    end
+    if setting == "sound" then
+        writeLine("QuickHeal: Overheal warning sound " .. (QHV[key] and "on" or "off"), 1, 1, 0)
+    else
+        writeLine("QuickHeal: Stopcast " .. (QHV[key] and "on" or "off"), 1, 1, 0)
+    end
     return true
 end
 
@@ -3171,8 +3199,9 @@ local function VerifyCandidate(unit, debugOn, hasHoT)
 end
 
 -- Picks the best hurt pet (lowest health fraction below currentPct).
+-- hasHoT is an optional function(unit); pets for which it returns true are rejected.
 -- Returns unit, healthPct; unit is nil if no pet qualifies, false if the check spell could not be cast.
-local function FindPetToHeal(nPets, currentPct, AllPlayersAreFull, debugOn)
+local function FindPetToHeal(nPets, currentPct, AllPlayersAreFull, hasHoT, debugOn)
     local RatioFull, TestMode, PetPriority = QHV.RatioFull, QHV.TestMode, QHV.PetPriority
     local n = 0
     for k = 1, nPets do
@@ -3188,7 +3217,7 @@ local function FindPetToHeal(nPets, currentPct, AllPlayersAreFull, debugOn)
     end
     SortCandidates(n)
     for k = 1, n do
-        local result = VerifyCandidate(candUnit[k], debugOn)
+        local result = VerifyCandidate(candUnit[k], debugOn, hasHoT)
         if result == nil then
             return false
         elseif result == 1 then
@@ -3320,7 +3349,7 @@ local function FindWhoToHeal(Restrict, extParam)
 
     -- Examine Healable Pets
     if PetPriority > 0 then
-        local pet, petPct = FindPetToHeal(nPets, healingTargetHealthPct, AllPlayersAreFull, debugOn);
+        local pet, petPct = FindPetToHeal(nPets, healingTargetHealthPct, AllPlayersAreFull, nil, debugOn);
         if pet == false then
             return false;
         elseif pet then
@@ -3471,8 +3500,11 @@ local function FindWhoToHOT(Restrict, extParam, noHpCheck)
             return false; -- check spell could not be cast
         elseif result == 1 then
             healingTarget = candUnit[k];
+            -- Remember the player's health so pets only win when they are worse off
             if noHpCheck then
                 healingTargetHealthPct = candKey[k];
+            else
+                healingTargetHealthPct = 1 + candKey[k] / QH_GetUnitMaxHealth(healingTarget);
             end
             AllPlayersAreFull = false;
             break;
@@ -3494,7 +3526,7 @@ local function FindWhoToHOT(Restrict, extParam, noHpCheck)
 
     -- Examine Healable Pets
     if PetPriority > 0 then
-        local pet, petPct = FindPetToHeal(nPets, healingTargetHealthPct, AllPlayersAreFull, debugOn);
+        local pet, petPct = FindPetToHeal(nPets, healingTargetHealthPct, AllPlayersAreFull, hasHoT, debugOn);
         if pet == false then
             return false;
         elseif pet then

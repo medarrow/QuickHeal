@@ -530,6 +530,8 @@ function QuickHeal_Command_Shaman(msg)
     writeLine("/qh [mask] [type] [mod] - Heals the party/raid member that most needs it.")
     writeLine(" [mask]: player, target, targettarget, party, mt, nonmt, subgroup")
     writeLine("/qh nearby [yards] - Heals the most hurt friendly unit within [yards] (default 40), in your group or not. Requires SuperWoW.")
+    writeLine("/qh sound [on|off] - Toggles the warning sound on excessive overheal.")
+    writeLine("/qh stopcast [on|off] - Toggles cancelling heals that are no longer needed (see /qh cfg for its settings).")
     writeLine(" [type]: heal (Healing Wave/LHW), chainheal (Chain Heal)")
     writeLine(" [mod]: max (max rank)")
 end

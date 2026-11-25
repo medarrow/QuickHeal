@@ -18,6 +18,8 @@ Download QuickHeal into your `Interface/AddOns` folder. Ensure the folder is nam
 | `/qh dll` | Report DLL enhancement status |
 | `/qh test on\|off` | Toggle test mode (ignores health thresholds) |
 | `/qh debug on\|off` | Toggle debug output |
+| `/qh sound on\|off` | Toggle the warning sound on excessive overheal (also on the Messages tab) |
+| `/qh stopcast on\|off` | Toggle stopcasting (also on the General tab) |
 | `/qh reset` | Reset configuration to defaults |
 
 ### Target Masks

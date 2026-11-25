@@ -523,6 +523,8 @@ function QuickHeal_Command_Paladin(msg)
     writeLine("/qh [mask] [type] [mod] - Heals the ally who needs it most.")
     writeLine(" [mask]: player, target, targettarget, party, mt, nonmt, subgroup")
     writeLine("/qh nearby [yards] - Heals the most hurt friendly unit within [yards] (default 40), in your group or not. Requires SuperWoW.")
+    writeLine("/qh sound [on|off] - Toggles the warning sound on excessive overheal.")
+    writeLine("/qh stopcast [on|off] - Toggles cancelling heals that are no longer needed (see /qh cfg for its settings).")
     writeLine(" [type]: heal (direct heal), hs (Holy Shock)")
     writeLine(" [mod]: max (max rank), fh (firehose - max rank, no hp check)")
 end
