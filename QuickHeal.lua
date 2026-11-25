@@ -2870,7 +2870,24 @@ local candUnit, candKey = {}, {}
 
 -- State of the lazily entered targeting-mode range check
 local rcActive, rcFailed, rcTargetCleared = false, false, false
-local rcOldPlaySound, rcSlot, rcSpellName
+local rcOldPlaySound, rcSlot, rcSpellName, rcTargetGuid
+
+-- A friendly target takes the heal instead of letting it go to the cursor, even when that target is
+-- out of range or line of sight (the cast then simply fails), so it has to be cleared either way.
+local function FriendlyTargetInTheWay()
+    return UnitExists('target') and UnitIsFriend('player', 'target')
+end
+
+local function RangeCheck_RestoreTarget()
+    if rcTargetCleared then
+        TargetLastTarget()
+        -- TargetLastTarget can fail for units the client no longer sees
+        if rcTargetGuid and not UnitExists('target') then
+            TargetUnit(rcTargetGuid)
+        end
+        rcTargetCleared = false
+    end
+end
 
 local function RangeCheck_Reset(slot, spellName)
     rcActive, rcFailed, rcTargetCleared = false, false, false
@@ -2889,9 +2906,10 @@ local function RangeCheck_Begin()
     end
     PlaySound = NoOp
 
-    -- Clear any healable target
-    if UnitIsHealable('target') then
+    -- Clear any friendly target
+    if FriendlyTargetInTheWay() then
         rcTargetCleared = true
+        rcTargetGuid = QH_GetUnitGUID('target')
         ClearTarget()
     end
 
@@ -2902,10 +2920,7 @@ local function RangeCheck_Begin()
     if not SpellIsTargeting() then
         SpellStopCasting() -- flush any spell Nampower queued instead of targeting mode
         -- Reacquire target if it was cleared
-        if rcTargetCleared then
-            TargetLastTarget()
-            rcTargetCleared = false
-        end
+        RangeCheck_RestoreTarget()
         -- Reinsert the PlaySound
         PlaySound = rcOldPlaySound
         rcFailed = true
@@ -2920,10 +2935,7 @@ end
 local function RangeCheck_End()
     if rcActive then
         SpellStopTargeting()
-        if rcTargetCleared then
-            TargetLastTarget()
-            rcTargetCleared = false
-        end
+        RangeCheck_RestoreTarget()
         PlaySound = rcOldPlaySound
         rcActive = false
     end
@@ -3259,6 +3271,62 @@ local function FindAggroTarget(nPlayers, preference, hasHoT, debugOn)
     return best, bestPct
 end
 
+-- Target Priority option: decides whether the current target is to be healed ahead of everyone else.
+-- Returns true only if it needs healing and can be reached, otherwise false (the group is scanned as
+-- usual); nil if the check spell could not be cast. Call RangeCheck_Reset first.
+local function TargetHasPriority(hasHoT, debugOn)
+    if not QHV.TargetPriority or not QuickHeal_UnitHasHealthInfo('target')
+        or not UnitIsHealableNoLoS('target', debugOn) then
+        return false
+    end
+    local predicted = (QH_GetUnitHealth('target') + HealComm:getHeal('target')) / QH_GetUnitMaxHealth('target')
+    if predicted >= QHV.RatioFull and not QHV.TestMode then
+        return false
+    end
+    if IsBlacklisted(UnitFullName('target')) or QH_DefinitelyOutOfRange(rcSpellName, 'target')
+        or (hasHoT and hasHoT('target')) or not QH_InLineOfSight('player', 'target') then
+        return false
+    end
+    if not has_nampower then
+        -- No direct range query: ask SpellCanTargetUnit. The target is cleared meanwhile, so this
+        -- needs the token the unit has in the group.
+        local token
+        if UnitIsUnit('target', 'player') then
+            return true
+        elseif InRaid() then
+            for i = 1, GetNumRaidMembers() do
+                if UnitIsUnit('target', RaidUnit[i]) then
+                    token = RaidUnit[i]
+                elseif UnitIsUnit('target', RaidPetUnit[i]) then
+                    token = RaidPetUnit[i]
+                end
+                if token then break end
+            end
+        else
+            for i = 1, GetNumPartyMembers() do
+                if UnitIsUnit('target', PartyUnit[i]) then
+                    token = PartyUnit[i]
+                elseif UnitIsUnit('target', PartyPetUnit[i]) then
+                    token = PartyPetUnit[i]
+                end
+                if token then break end
+            end
+            if not token and UnitIsUnit('target', 'pet') then
+                token = 'pet'
+            end
+        end
+        if token then
+            local result = VerifyCandidate(token, debugOn, hasHoT)
+            RangeCheck_End()
+            if result == nil then
+                return nil
+            end
+            return result == 1
+        end
+    end
+    return true
+end
+
 local function FindWhoToHeal(Restrict, extParam)
     local debugOn = QHV.DebugMode;
     local RatioFull, TestMode, PetPriority = QHV.RatioFull, QHV.TestMode, QHV.PetPriority;
@@ -3272,12 +3340,14 @@ local function FindWhoToHeal(Restrict, extParam)
         return 'player';
     end
 
-    -- Target Priority (uses accurate health with Nampower)
-    if QHV.TargetPriority and QuickHeal_UnitHasHealthInfo('target') then
-        if (QH_GetUnitHealth('target') / QH_GetUnitMaxHealth('target')) < RatioFull or TestMode then
-            QuickHeal_debug("********** Target Priority **********");
-            return 'target';
-        end
+    -- Target Priority
+    RangeCheck_Reset(GetCheckSpell());
+    local targetFirst = TargetHasPriority(nil, debugOn);
+    if targetFirst then
+        QuickHeal_debug("********** Target Priority **********");
+        return 'target';
+    elseif targetFirst == nil then
+        return false; -- check spell could not be cast
     end
 
     -- Heal party/raid etc.
@@ -3421,22 +3491,17 @@ local function FindWhoToHOT(Restrict, extParam, noHpCheck)
         end
     end
 
-    -- Target Priority (uses accurate health with Nampower)
-    if QHV.TargetPriority and QuickHeal_UnitHasHealthInfo('target') then
-        if (QH_GetUnitHealth('target') / QH_GetUnitMaxHealth('target')) < RatioFull or TestMode then
-            QuickHeal_debug("********** Target Priority **********");
-            if PlayerClass == "priest" then
-                if not UnitHasRenew('target') then
-                    return 'target';
-                end
-            elseif PlayerClass == "druid" then
-                if not UnitHasRejuvenation('target') then
-                    return 'target';
-                end
-            elseif PlayerClass == "paladin" then
-                return 'target';
-            end
-        end
+    -- Target Priority
+    RangeCheck_Reset(GetCheckSpellHOT());
+    local targetFirst = false;
+    if PlayerClass ~= "shaman" then -- no HoT
+        targetFirst = TargetHasPriority(hasHoT, debugOn);
+    end
+    if targetFirst then
+        QuickHeal_debug("********** Target Priority **********");
+        return 'target';
+    elseif targetFirst == nil then
+        return false; -- check spell could not be cast
     end
 
     -- Heal party/raid etc.
@@ -3750,8 +3815,8 @@ local function ExecuteHeal(Target, SpellID)
     PlaySound = function()
     end
 
-    -- If the current target is healable, take special measures
-    if UnitIsHealable('target') then
+    -- If the current target is friendly, take special measures
+    if FriendlyTargetInTheWay() then
         -- If the healing target is targettarget change current healable target to targettarget
         if Target == 'targettarget' then
             local old = UnitFullName('target');
@@ -3867,8 +3932,8 @@ local function ExecuteHOT(Target, SpellID)
     PlaySound = function()
     end
 
-    -- If the current target is healable, take special measures
-    if UnitIsHealable('target') then
+    -- If the current target is friendly, take special measures
+    if FriendlyTargetInTheWay() then
         -- If the healing target is targettarget change current healable target to targettarget
         if Target == 'targettarget' then
             local old = UnitFullName('target');
