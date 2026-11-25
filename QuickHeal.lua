@@ -916,6 +916,12 @@ function UnitHasRejuvenation(unit)
     return QuickHeal_HasBuff(unit, "Rejuvenation", 'Interface\\Icons\\Spell_Nature_Rejuvenation')
 end
 
+-- Returns true if unit has a HoT that Swiftmend can consume
+function UnitHasSwiftmendableHoT(unit)
+    return UnitHasRejuvenation(unit)
+        or QuickHeal_HasBuff(unit, "Regrowth", 'Interface\\Icons\\Spell_Nature_ResistNature')
+end
+
 -- Returns true if the player is in a raid group
 function InRaid()
     return (GroupstatusInt() == 2);
@@ -2580,14 +2586,14 @@ function QuickHeal_GetSpellInfo(spellName)
             QuickHeal_ScanningTooltip:SetSpell(i, BOOKTYPE_SPELL);
 
             -- Try to determine mana
-            _, _, Mana = string.find(QuickHeal_ScanningTooltipTextLeft2:GetText(), "^(%d+) ");
+            _, _, Mana = string.find(QuickHeal_ScanningTooltipTextLeft2:GetText() or "", "^(%d+) ");
             Mana = tonumber(Mana);
             if not (type(Mana) == "number") then
                 Mana = 0
             end
 
             -- Try to determine healing
-            _, _, HealMin, HealMax = string.find(QuickHeal_ScanningTooltipTextLeft4:GetText(), " (%d+) %a+ (%d+)");
+            _, _, HealMin, HealMax = string.find(QuickHeal_ScanningTooltipTextLeft4:GetText() or "", " (%d+) %a+ (%d+)");
             HealMin, HealMax = tonumber(HealMin), tonumber(HealMax);
             if not ((type(HealMin) == "number") and (type(HealMax) == "number")) then
                 Heal = 0
@@ -2596,7 +2602,7 @@ function QuickHeal_GetSpellInfo(spellName)
             end
 
             -- Try to determine cast time
-            _, _, Time = string.find(QuickHeal_ScanningTooltipTextLeft3:GetText(), "^(%d%.?%d?) ");
+            _, _, Time = string.find(QuickHeal_ScanningTooltipTextLeft3:GetText() or "", "^(%d%.?%d?) ");
             Time = tonumber(Time);
             if not (type(Time) == "number") then
                 Time = 0
@@ -3327,22 +3333,27 @@ local function TargetHasPriority(hasHoT, debugOn)
     return true
 end
 
+-- extParam.rejectUnit: optional function(unit); units for which it returns true are not healed
+-- extParam.instant: the spell to cast is instant, so the range check must work while moving
 local function FindWhoToHeal(Restrict, extParam)
     local debugOn = QHV.DebugMode;
+    local rejectUnit = extParam and extParam.rejectUnit;
+    local GetRangeSpell = (extParam and extParam.instant) and GetCheckSpellHOT or GetCheckSpell;
     local RatioFull, TestMode, PetPriority = QHV.RatioFull, QHV.TestMode, QHV.PetPriority;
     local AllPlayersAreFull = true;
     local AllPetsAreFull = true;
 
     -- Self Preservation (uses accurate health with Nampower)
     local selfPercentage = (QH_GetUnitHealth('player') + HealComm:getHeal('player')) / QH_GetUnitMaxHealth('player');
-    if (selfPercentage < QHV.RatioForceself) and (selfPercentage < RatioFull) then
+    if (selfPercentage < QHV.RatioForceself) and (selfPercentage < RatioFull)
+        and not (rejectUnit and rejectUnit('player')) then
         QuickHeal_debug("********** Self Preservation **********");
         return 'player';
     end
 
     -- Target Priority
-    RangeCheck_Reset(GetCheckSpell());
-    local targetFirst = TargetHasPriority(nil, debugOn);
+    RangeCheck_Reset(GetRangeSpell());
+    local targetFirst = TargetHasPriority(rejectUnit, debugOn);
     if targetFirst then
         QuickHeal_debug("********** Target Priority **********");
         return 'target';
@@ -3384,7 +3395,7 @@ local function FindWhoToHeal(Restrict, extParam)
 
     local healingTarget = nil;
     local healingTargetHealthPct = 1;
-    RangeCheck_Reset(GetCheckSpell());
+    RangeCheck_Reset(GetRangeSpell());
 
     -- Examine Healable Players: candidates are those whose predicted health is below the threshold
     local n = 0;
@@ -3406,7 +3417,7 @@ local function FindWhoToHeal(Restrict, extParam)
     -- Lowest predicted health first; the first candidate that can actually be healed wins
     SortCandidates(n);
     for k = 1, n do
-        local result = VerifyCandidate(candUnit[k], debugOn);
+        local result = VerifyCandidate(candUnit[k], debugOn, rejectUnit);
         if result == nil then
             return false; -- check spell could not be cast
         elseif result == 1 then
@@ -3419,7 +3430,7 @@ local function FindWhoToHeal(Restrict, extParam)
 
     -- Examine Healable Pets
     if PetPriority > 0 then
-        local pet, petPct = FindPetToHeal(nPets, healingTargetHealthPct, AllPlayersAreFull, nil, debugOn);
+        local pet, petPct = FindPetToHeal(nPets, healingTargetHealthPct, AllPlayersAreFull, rejectUnit, debugOn);
         if pet == false then
             return false;
         elseif pet then
@@ -3430,7 +3441,8 @@ local function FindWhoToHeal(Restrict, extParam)
     end
 
     -- Check for aggro targets if PrecastAggro is enabled and no valid healing target found
-    if QHV.PrecastAggro and AllPlayersAreFull and (AllPetsAreFull or PetPriority == 0) then
+    -- (not for a spell limited to certain units: those are not worth spending on healthy targets)
+    if QHV.PrecastAggro and not rejectUnit and AllPlayersAreFull and (AllPetsAreFull or PetPriority == 0) then
         QuickHeal_debug("********** Precast Aggro Check **********");
         local aggroTarget, aggroPct = FindAggroTarget(nPlayers, QHV.PrecastAggroPreference, nil, debugOn);
         if aggroTarget == false then
@@ -3446,7 +3458,8 @@ local function FindWhoToHeal(Restrict, extParam)
 
     -- Examine External Target (only if still no target found)
     if not healingTarget and AllPlayersAreFull and (AllPetsAreFull or PetPriority == 0) then
-        if not QuickHeal_UnitHasHealthInfo('target') and UnitIsHealable('target', true) then
+        if not QuickHeal_UnitHasHealthInfo('target') and UnitIsHealable('target', true)
+            and not (rejectUnit and rejectUnit('target')) then
             QuickHeal_debug(string.format("%s (%s) : %d/%d", UnitFullName('target'), 'target', QH_GetUnitHealth('target'),
                 QH_GetUnitMaxHealth('target')));
             local Health;
@@ -4283,6 +4296,13 @@ function QuickHeal(Target, SpellID, extParam, forceMaxHPS)
             else
                 targetPercentage = QH_GetUnitHealth(Target) / 100;
             end
+            if extParam.rejectUnit and extParam.rejectUnit(Target) then
+                Message(string.format("%s %s", UnitFullName(Target) or Target, extParam.rejectReason or "cannot be healed"),
+                    "Info", 2);
+                SetCVar("autoSelfCast", AutoSelfCast);
+                QuickHealBusy = false;
+                return;
+            end
             if skipFullCheck or targetPercentage < QHV.RatioFull or QHV.TestMode then
                 -- Does need healing (fall through to healing code)
             else
@@ -4358,6 +4378,8 @@ function QuickHeal(Target, SpellID, extParam, forceMaxHPS)
                     else
                         Message("No Main Tank to heal", "Info", 2);
                     end
+                elseif extParam.noTargetMessage then
+                    Message(extParam.noTargetMessage, "Info", 2);
                 elseif Restrict == "nearby" or InParty() or InRaid() then
                     Message("No one to heal", "Info", 2);
                 else
@@ -4569,6 +4591,30 @@ function QuickHOT(Target, SpellID, extParam, forceMaxRank, noHpCheck)
     if not ok then
         QuickHeal_debug("QuickHOT error: " .. tostring(err))
     end
+end
+
+-- Swiftmend: casts it on the most hurt unit that has a Rejuvenation or Regrowth to consume.
+-- Target is the same as for QuickHeal. Does nothing while Swiftmend is on cooldown.
+local swiftmendParam = {
+    instant = true,
+    rejectUnit = function(unit) return not UnitHasSwiftmendableHoT(unit) end,
+    rejectReason = "has no Rejuvenation or Regrowth",
+    noTargetMessage = "No one to Swiftmend",
+}
+
+function QuickSwiftmend(Target)
+    local info = QuickHeal_GetSpellInfo(QUICKHEAL_SPELL_SWIFTMEND);
+    local spell = info[0] or info[1];
+    if not spell then
+        Message("You do not know " .. QUICKHEAL_SPELL_SWIFTMEND, "Error", 2);
+        return;
+    end
+    local start, duration = GetSpellCooldown(spell.SpellID, BOOKTYPE_SPELL);
+    if start and duration and start > 0 and duration > 0 then
+        QuickHeal_debug("Swiftmend is on cooldown");
+        return;
+    end
+    QuickHeal(Target, QUICKHEAL_SPELL_SWIFTMEND, swiftmendParam);
 end
 
 function ToggleDownrankWindow()

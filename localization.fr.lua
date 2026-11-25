@@ -18,5 +18,6 @@ QUICKHEAL_SPELL_HOLY_LIGHT = 'Horion sacré';
 -- Druid
 QUICKHEAL_SPELL_HEALING_TOUCH = 'Toucher gu\195\169risseur';
 QUICKHEAL_SPELL_REGROWTH = 'R\195\169tablissement';
+QUICKHEAL_SPELL_SWIFTMEND = 'Prompte gu\195\169rison';
 
 end

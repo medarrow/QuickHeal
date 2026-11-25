@@ -18,5 +18,6 @@ QUICKHEAL_SPELL_HOLY_SHOCK = 'Heiliger Schock';
 -- Druid
 QUICKHEAL_SPELL_HEALING_TOUCH = 'Heilende Ber\195\188hrung';
 QUICKHEAL_SPELL_REGROWTH = 'Nachwachsen';
+QUICKHEAL_SPELL_SWIFTMEND = 'Rasche Heilung';
 
 end

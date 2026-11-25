@@ -123,8 +123,10 @@ Prayer of Healing on the most injured raid group.
 | `/qh hot` | Rejuvenation on lowest health target without an active HoT |
 | `/qh hot max` | Max rank Rejuvenation |
 | `/qh hot fh` | Firehose — spam max rank Rejuvenation |
+| `/qh swiftmend` or `/qh sm` | Swiftmend the most hurt target that has a Rejuvenation or Regrowth |
 | `/qh [mask] ht` | Force Healing Touch with a target mask |
 | `/qh [mask] rg` | Force Regrowth with a target mask |
+| `/qh [mask] swiftmend` | Swiftmend with a target mask |
 
 ### Recommended Macros
 
@@ -139,9 +141,9 @@ Basic heal — selects Healing Touch or Regrowth based on the healthy threshold.
 Cast Rejuvenation on the lowest health target without an active HoT.
 
 ```
-/script QuickHeal(nil,'Swiftmend')
+/qh swiftmend
 ```
-Cast Swiftmend (works while moving).
+Cast Swiftmend on the most hurt target that has a Rejuvenation or Regrowth. Does nothing while Swiftmend is on cooldown, so it can be followed by `/qh` in a macro.
 
 ```
 /script QuickHeal(nil,'Regrowth')
